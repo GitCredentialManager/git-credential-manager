@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using GitCredentialManager.Authentication;
+using GitCredentialManager.Authentication.Oauth.Json;
 using GitCredentialManager.Authentication.OAuth;
 
 namespace GitCredentialManager
@@ -125,6 +126,19 @@ namespace GitCredentialManager
             return await _basicAuth.GetCredentialsAsync(uri.AbsoluteUri, input.UserName);
         }
 
+        public override async Task<ICredential> GetCredentialAsync(InputArguments input)
+        {
+            var credential = await base.GetCredentialAsync(input);
+            if (WebToken.IsExpiredToken(credential.Password))
+            {
+                // No existing credential was found, create a new one
+                Context.Trace.WriteLine("Refreshing expired JWT credential...");
+                credential = await GenerateCredentialAsync(input);
+                Context.Trace.WriteLine("Credential created.");
+            }
+            return credential;
+        }
+
         private async Task<ICredential> GetOAuthAccessToken(Uri remoteUri, string userName, GenericOAuthConfig config, ITrace2 trace2)
         {
             // TODO: Determined user info from a webcall? ID token? Need OIDC support
@@ -152,7 +166,7 @@ namespace GitCredentialManager
 
             // Try to use a refresh token if we have one
             ICredential refreshToken = Context.CredentialStore.Get(refreshService, userName);
-            if (refreshToken != null)
+            if (refreshToken != null && !WebToken.IsExpiredToken(refreshToken.Password))
             {
                 try
                 {
